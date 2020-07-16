@@ -38,7 +38,7 @@ boolLit = lexeme $ do
   return $ n == 1
 
 listLit :: Parser List
-listLit = symbol "<" *> manyTill decimal (symbol ">")
+listLit = symbol "<" *> (reverse <$> manyTill decimal (symbol ">"))
 
 keyword :: Text -> Parser Text
 keyword w = lexeme (string w <* notFollowedBy alphaNumChar)
@@ -57,25 +57,29 @@ parens :: Parser a -> Parser a
 parens = between (symbol "(") (symbol ")")
 
 delta :: Parser (Expr Bool)
-delta = choice
+delta = deltaBoolExpr <* eof
+
+deltaForall :: Parser (Expr Bool)
+deltaForall = Forall <$> varName <* keyword "in" <*> deltaList <* keyword "." <*> deltaTerm
+
+deltaExists :: Parser (Expr Bool)
+deltaExists = Exists <$> varName <* keyword "in" <*> deltaList <* keyword "." <*> deltaTerm
+
+deltaLet :: Parser (Expr Bool)
+deltaLet = Let <$> varName <* symbol "=" <*> deltaList <* symbol "." <*> deltaTerm
+
+deltaTerm :: Parser (Expr Bool)
+deltaTerm = choice
   [ keyword "forall" *> deltaForall
   , keyword "exists" *> deltaExists
   , keyword "let"    *> deltaLet
-  , deltaBoolExpr
-  ] <* eof
-
-deltaForall :: Parser (Expr Bool)
-deltaForall = Forall <$> varName <* keyword "in" <*> deltaList <* keyword "." <*> delta
-
-deltaExists :: Parser (Expr Bool)
-deltaExists = Exists <$> varName <* keyword "in" <*> deltaList <* keyword "." <*> delta
-
-deltaLet :: Parser (Expr Bool)
-deltaLet = Let <$> varName <* symbol "=" <*> deltaList <* symbol "." <*> delta
+  , BConst <$> boolLit
+  , try (parens deltaBoolExpr)
+  , deltaListBoolExpr
+  ]
 
 deltaBoolExpr :: Parser (Expr Bool)
-deltaBoolExpr = makeExprParser term ops where
-  term = choice [BConst <$> boolLit, deltaListBoolExpr, parens deltaBoolExpr]
+deltaBoolExpr = makeExprParser deltaTerm ops where
   ops = [ [ Prefix (BNot <$ symbol "!") ]
         , [ InfixL (BOp BAnd <$ symbol "*") ]
         , [ InfixL (BOp BOr  <$ symbol "+") ]
@@ -96,4 +100,4 @@ deltaList = choice
   , LTail <$ keyword "tail" <*> deltaList
   , LConc <$ keyword "conc" <*> deltaList <*> deltaList
   , Var <$> varName
-  ]
+  ] <?> "list"

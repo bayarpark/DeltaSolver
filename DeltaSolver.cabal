@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: a27a461047573d9a5eb0f1679301f23a4ed209381c622dbb1d2f49dec7313c45
+-- hash: cb53f4a6a8b8b54a8bcf7b746c9359c9c72b1ebcef93fb521082f5878224e462
 
 name:           DeltaSolver
 version:        0.1.0.0
@@ -29,28 +29,14 @@ library
   exposed-modules:
       Delta.Lang
       Delta.Parse
-      Lib
+      Delta.Solve
   other-modules:
       Paths_DeltaSolver
   hs-source-dirs:
       src
+  default-extensions: LambdaCase
   build-depends:
       base >=4.7 && <5
-    , megaparsec ==8.0.0
-    , parser-combinators >=1.0 && <2.0
-    , text
-  default-language: Haskell2010
-
-executable DeltaSolver-exe
-  main-is: Main.hs
-  other-modules:
-      Paths_DeltaSolver
-  hs-source-dirs:
-      app
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-      DeltaSolver
-    , base >=4.7 && <5
     , megaparsec ==8.0.0
     , parser-combinators >=1.0 && <2.0
     , text
@@ -63,6 +49,7 @@ test-suite DeltaSolver-test
       Paths_DeltaSolver
   hs-source-dirs:
       test
+  default-extensions: LambdaCase
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       DeltaSolver

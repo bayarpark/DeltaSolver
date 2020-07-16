@@ -14,7 +14,7 @@ main = hspec $ do
       d <- expectValidDelta "0 + 1 * 0"
       d `shouldBe` BOp BOr (BConst False) (BOp BAnd (BConst True) (BConst False))
     it "expr2" $ do
-      d <- expectValidDelta "0 + x in [1 2 3]"
+      d <- expectValidDelta "0 + x in <1 2 3>"
       d `shouldBe` BOp BOr (BConst False) (LIn (Var "x") (LConst [1, 2, 3]))
     it "expr3" $ do
       d <- expectValidDelta "exists z in y. conc z x = y"

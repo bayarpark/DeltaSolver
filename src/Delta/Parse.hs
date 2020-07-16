@@ -38,7 +38,7 @@ boolLit = lexeme $ do
   return $ n == 1
 
 listLit :: Parser List
-listLit = symbol "[" *> manyTill decimal (symbol "]")
+listLit = symbol "<" *> manyTill decimal (symbol ">")
 
 keyword :: Text -> Parser Text
 keyword w = lexeme (string w <* notFollowedBy alphaNumChar)

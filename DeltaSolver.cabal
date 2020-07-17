@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: cb53f4a6a8b8b54a8bcf7b746c9359c9c72b1ebcef93fb521082f5878224e462
+-- hash: 542c55c7045876d0fc1698c636773321426e3c345395da6a691d571bc10ba319
 
 name:           DeltaSolver
 version:        0.1.0.0
@@ -37,6 +37,7 @@ library
   default-extensions: LambdaCase
   build-depends:
       base >=4.7 && <5
+    , containers
     , megaparsec ==8.0.0
     , parser-combinators >=1.0 && <2.0
     , text
@@ -54,6 +55,7 @@ test-suite DeltaSolver-test
   build-depends:
       DeltaSolver
     , base >=4.7 && <5
+    , containers
     , hspec
     , megaparsec ==8.0.0
     , parser-combinators >=1.0 && <2.0

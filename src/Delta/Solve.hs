@@ -2,43 +2,58 @@
 module Delta.Solve where
 
 import Data.Function (fix)
-import Data.List (isSuffixOf)
+import Data.List (isPrefixOf, inits)
+import Data.Map (Map)
+import qualified Data.Map as M
 
 import Delta.Lang
+import qualified Delta.Lang as Lang
 
-type Env = [(String, List)]
+type Formulas = Map String Formula
+data Formula = Formula
+  { argNames :: [String]
+  , expr     :: Expr Bool
+  } deriving (Show, Eq)
+
+type Vars = [(String, List)]
 
 data Solution
-  = FTrue  [(String, List)]
-  | FFalse [(String, List)]
+  = FTrue  Vars
+  | FFalse Vars
   deriving (Show, Eq)
 
 data SolveErr
   = UndefinedVar
+  | UndefinedFormula
+  | FormulaArgumentsMismatch
   deriving (Eq, Show)
 
-solve :: Env -> Expr Bool -> Either SolveErr Solution
-solve env = \case
+solveFormula :: Formulas -> String -> [List] -> Either SolveErr Solution
+solveFormula formulas fName args =
+  solve formulas [] (Lang.Formula fName $ LConst <$> args)
+
+solve :: Formulas -> Vars -> Expr Bool -> Either SolveErr Solution
+solve formulas env = \case
   BConst True -> Right (FTrue [])
   BConst False -> Right (FFalse [])
-  BNot x -> solve env x >>= \case 
+  BNot x -> solve formulas env x >>= \case
     FTrue e -> Right $ FFalse e
     FFalse e -> Right $ FTrue e
-  BOp BAnd x y -> solve env x >>= \case
+  BOp BAnd x y -> solve formulas env x >>= \case
     FFalse e -> Right $ FFalse e
-    FTrue e1 -> solve env y >>= \case
+    FTrue e1 -> solve formulas env y >>= \case
       FFalse e2 -> Right $ FFalse e2
       FTrue e2 -> Right $ FTrue (e1 ++ e2)
-  BOp BOr x y -> solve env x >>= \case
+  BOp BOr x y -> solve formulas env x >>= \case
     FTrue e -> Right $ FTrue e
-    FFalse e1 -> solve env y >>= \case
+    FFalse e1 -> solve formulas env y >>= \case
       FTrue e2 -> Right $ FTrue e2
       FFalse e2 -> Right $ FFalse (e1 ++ e2)
 
   LIn prefix list -> do
     p <- evaluate env prefix
     l <- evaluate env list
-    if p `isSuffixOf` l
+    if p `isPrefixOf` l
       then Right $ FTrue []
       else Right $ FFalse []
   LEq l1 l2 -> do
@@ -49,34 +64,41 @@ solve env = \case
       else Right $ FFalse []
   Let var list expr -> do
     l <- evaluate env list
-    solve ((var, l) : env) expr
+    solve formulas ((var, l) : env) expr
 
   Exists var boundList' formula -> do
     boundList <- evaluate env boundList'
-    flip fix boundList $ \repeat boundList -> do
-      let env' = (var, boundList) : env
-      solve env' formula >>= \case
-        FTrue e -> Right $ FTrue $ (var, boundList) : e
-        FFalse e -> case boundList of
-          _:xs -> repeat xs
-          [] -> Right $ FFalse []
+    flip fix (inits boundList) $ \repeat -> \case
+      [] -> Right $ FFalse []
+      boundList : nextBoundList -> do
+        let env' = (var, boundList) : env
+        solve formulas env' formula >>= \case
+          FTrue e -> Right $ FTrue $ (var, boundList) : e
+          FFalse e -> repeat nextBoundList
   Forall var boundList' formula -> do
     boundList <- evaluate env boundList'
-    flip fix boundList $ \repeat boundList -> do
-      let env' = (var, boundList) : env
-      solve env' formula >>= \case
-        FFalse e -> Right $ FFalse $ (var, boundList) : e
-        FTrue e -> case boundList of
-          _:xs -> repeat xs
-          [] -> Right $ FTrue []
+    flip fix (inits boundList) $ \repeat -> \case
+      [] -> Right $ FTrue []
+      boundList : nextBoundList -> do
+        let env' = (var, boundList) : env
+        solve formulas env' formula >>= \case
+          FFalse e -> Right $ FFalse $ (var, boundList) : e
+          FTrue e -> repeat nextBoundList
+  Lang.Formula fName args' ->
+    case M.lookup fName formulas of
+      Just f | length (argNames f) == length args' -> do
+        args <- sequenceA $ evaluate env <$> args'
+        solve formulas (argNames f `zip` args) (expr f)
+      Just _  -> Left FormulaArgumentsMismatch
+      Nothing -> Left UndefinedFormula
 
-evaluate :: Env -> Expr List -> Either SolveErr List
+evaluate :: Vars -> Expr List -> Either SolveErr List
 evaluate env = \case
   LConst l -> Right l
   LTail l -> evaluate env l >>= Right . \case
-    [] -> []
     _:xs -> xs
-  LConc a b -> (++) <$> evaluate env b <*> evaluate env a
+    [] -> []
+  LConc a b -> (++) <$> evaluate env a <*> evaluate env b
   Var name -> case lookup name env of
     Just l -> Right l
     Nothing -> Left UndefinedVar

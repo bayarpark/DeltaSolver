@@ -1,51 +1,103 @@
-{-# LANGUAGE GADTs, OverloadedStrings #-}
+{-# LANGUAGE GADTs, OverloadedStrings, TupleSections #-}
 import Test.Hspec
 
+import Data.Monoid ((<>))
 import Data.Text (Text)
+import qualified Data.Map.Strict as M
+
 import Text.Megaparsec (parse, errorBundlePretty)
 
-import Delta.Lang
-import Delta.Parse (delta)
-import Delta.Solve (Solution(..), solve)
+import Delta.Lang hiding (Formula)
+import Delta.Parse (delta, peekSignatures)
+import Delta.Solve (Formulas, Solution(..), Formula(..), solveFormula)
+import qualified Delta.Lang as Lang
 
 main :: IO ()
 main = hspec $ do
   describe "Parse simple expressions" $ do
     it "expr1" $ do
-      formula <- validFormula "0 + 1 * 0"
-      formula `shouldBe` BOp BOr (BConst False) (BOp BAnd (BConst True) (BConst False))
+      formulas <- validFormula "expr1 = 0 + 1 * 0;"
+      M.toList formulas `shouldBe`
+        [ ("expr1",)
+        $ Formula []
+        $ BOp BOr (BConst False) (BOp BAnd (BConst True) (BConst False))
+        ]
     it "expr2" $ do
-      formula <- validFormula "0 + x in <1 2 3>"
-      formula `shouldBe` BOp BOr (BConst False) (LIn (Var "x") (LConst [3, 2, 1]))
+      formulas <- validFormula "expr2 x = 0 + x in <1 2 3>"
+      M.toList formulas `shouldBe`
+        [ ("expr2",)
+        $ Formula ["x"]
+        $ BOp BOr (BConst False)
+                  (Var "x" `LIn` LConst [1,2,3])
+        ]
     it "expr3" $ do
-      formula <- validFormula "exists z in y. conc z x = y"
-      formula `shouldBe` Exists "z" (Var "y") (LEq (LConc (Var "z") (Var "x")) (Var "y"))
+      formulas <- validFormula "expr3 x = forall y in <2 3 4>. exists z in y. conc z x = y"
+      M.toList formulas `shouldBe`
+        [ ("expr3",)
+        $ Formula ["x"]
+        $ Forall "y" (LConst [2,3,4])
+        $ Exists "z" (Var "y")
+        $ LEq (LConc (Var "z") (Var "x")) (Var "y")
+        ]
     it "expr4" $ do
-      formula <- validFormula "forall z in <1 2>. (1 + conc z <1> in <1 2 1> * 0)"
-      formula `shouldBe` Forall "z" (LConst [2, 1]) (BOp BOr (BConst True) (BOp BAnd (LIn (LConc (Var "z") (LConst [1])) (LConst [1, 2, 1])) (BConst False)))
+      formulas <- validFormula "expr4 = forall z in <1 2>. (1 + conc z <1> in <1 2 1> * 0)"
+      M.toList formulas `shouldBe`
+        [ ("expr4",)
+        $ Formula []
+        $ Forall "z" (LConst [1,2])
+        $ BOp BOr (BConst True)
+                  (BOp BAnd (LIn (LConc (Var "z") (LConst [1])) (LConst [1, 2, 1]))
+                            (BConst False))
+        ]
   describe "Solves simple expression" $ do
     it "suffix" $ do
-      formula <- validFormula "let x = <2 3>. let y = <1 2 3>. exists z in y. conc z x = y"
-      let expected = Let "x" (LConst [3,2]) $
-                     Let "y" (LConst [3,2,1]) $
-                     Exists "z" (Var "y") $
-                     LEq (LConc (Var "z") (Var "x")) (Var "y")
-      formula `shouldBe` expected
-      case solve mempty formula of
-        Right x -> x `shouldBe` FTrue [("z", [1])]
-        Left e -> fail $ "solving failed: " ++ show e
-    it "1-elem" $ do
-      formula <- validFormula "let x = <1>. (!(x = <>) * tail x = <>)"
-      formula `shouldBe` Let "x" (LConst [1]) (BOp BAnd (BNot (LEq (Var "x") (LConst []))) (LEq (LTail (Var "x")) (LConst [])))
-      solve mempty formula `shouldBe` Right (FTrue [])
+      formulas <- validFormula "suffix x y = exists z in y. conc z x = y"
+      M.toList formulas `shouldBe`
+        [ ("suffix",)
+        $ Formula ["x", "y"]
+        $ Exists "z" (Var "y")
+        $ LConc (Var "z") (Var "x") `LEq` Var "y"
+        ]
+      solveFormula formulas "suffix" [[2,3], [1,2,3]] `shouldBe` Right (FTrue [("z", [1])])
+      solveFormula formulas "suffix" [[1,2], [1,2,3]] `shouldBe` Right (FFalse [])
+    it "oneElem" $ do
+      formulas <- validFormula "oneElem x = !(x = <>) * tail x = <>"
+      M.toList formulas `shouldBe`
+        [ ("oneElem",)
+        $ Formula ["x"]
+        $ BOp BAnd (BNot (LEq (Var "x") (LConst [])))
+                   (LEq (LTail (Var "x")) (LConst []))
+        ]
+      solveFormula formulas "oneElem" [[1]] `shouldBe` Right (FTrue [])
+      solveFormula formulas "oneElem" [[1, 2]] `shouldBe` Right (FFalse [])
     it "beg" $ do
-      formula <- validFormula "let y = <1 2>. exists x in y. (!(x = <>) * tail x = <>)"
-      solve mempty formula `shouldBe` Right (FTrue [("x", [1])])
+      formulas <- validFormula $
+        "oneElem x = !(x = <>) * tail x = <>;" <>
+        "beg x y = x in y * oneElem x"
+      solveFormula formulas "beg" [[1], [1, 2]] `shouldBe` Right (FTrue [])
+    it "reverse" $ do
+      formulas <- validFormula $
+        "oneElem x = !(x = <>) * tail x = <>;" <>
+        "beg x y = x in y * oneElem x;" <>
+        "rev x y = (  x = nil + oneElem x  -> x = y)" <>
+        "        * (!(x = nil + oneElem x) -> exists z in x. exists t in y. ( beg z x " <>
+        "                                                                    * y = conc t z " <>
+        "                                                                    * rev (tail x) t))"
+      solveFormula formulas "rev" [[1,2,3], [3,2,1]] `shouldBe` Right (FTrue [("z",[1]),("t",[3,2]),("z",[2]),("t",[3])])
+      solveFormula formulas "rev" [[1,2,3], [3,2,3]] `shouldBe` Right (FFalse [])
+      solveFormula formulas "rev" [[1,2,3], [1,2,3]] `shouldBe` Right (FFalse [])
+      solveFormula formulas "rev" [[1,2,3], []] `shouldBe` Right (FFalse [])
 
-validFormula :: Text -> IO (Expr Bool)
-validFormula d =
-  case parse delta "" d of
+
+validFormula :: Text -> IO Formulas
+validFormula d = do
+  signatures <- case parse peekSignatures "" d of
     Right x -> return x
     Left e -> do
       putStr (errorBundlePretty e)
-      fail "failed"
+      fail "peeking signatures failed"
+  case parse (delta signatures) "" d of
+    Right x -> return x
+    Left e -> do
+      putStr (errorBundlePretty e)
+      fail "parsing formula failed"

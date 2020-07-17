@@ -21,6 +21,8 @@ data Expr :: * -> * where
   Exists :: String -> Expr List -> Expr Bool -> Expr Bool
   Forall :: String -> Expr List -> Expr Bool -> Expr Bool
 
+  Formula :: String -> [Expr List] -> Expr Bool
+
 deriving instance Show e => Show (Expr e)
 deriving instance Eq e => Eq (Expr e)
 

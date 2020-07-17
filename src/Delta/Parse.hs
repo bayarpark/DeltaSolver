@@ -1,19 +1,30 @@
-{-# LANGUAGE OverloadedStrings #-}
-module Delta.Parse (delta) where
+{-# LANGUAGE OverloadedStrings, TupleSections #-}
+module Delta.Parse (Signatures, delta, peekSignatures) where
 
-import Control.Monad (when)
+import Control.Monad (when, void)
 import Data.Void (Void)
 import Data.Text (Text)
 import Data.List (elem)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
 
+import Control.Monad.Combinators
 import Control.Monad.Combinators.Expr
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 
-import Delta.Lang
+import Delta.Lang hiding (Formula)
+import Delta.Solve (Formulas, Formula(..))
+import qualified Delta.Lang as Lang
 
 type Parser = Parsec Void Text
+
+data Signatures = Signatures Env
+
+type Env = [(VarName, VarType)]
+type VarName = String
+data VarType = TList | TFormula Int deriving Show
 
 sc :: Parser ()
 sc = L.space
@@ -38,13 +49,13 @@ boolLit = lexeme $ do
   return $ n == 1
 
 listLit :: Parser List
-listLit = symbol "<" *> (reverse <$> manyTill decimal (symbol ">"))
+listLit = symbol "<" *> (manyTill decimal (symbol ">"))
 
 keyword :: Text -> Parser Text
 keyword w = lexeme (string w <* notFollowedBy alphaNumChar)
 
 keywords :: [String]
-keywords = ["forall", "exists", "let", "in", "tail", "conc"]
+keywords = ["forall", "exists", "let", "in", "tail", "conc", "nil"]
 
 varName :: Parser String
 varName = lexeme $ do
@@ -56,48 +67,119 @@ varName = lexeme $ do
 parens :: Parser a -> Parser a
 parens = between (symbol "(") (symbol ")")
 
-delta :: Parser (Expr Bool)
-delta = deltaBoolExpr <* eof
+delta :: Signatures -> Parser Formulas
+delta (Signatures initialEnv) = M.fromList <$> sepEndBy formula (symbol ";") <* eof
+  where
+  formula = do
+    funcName <- varName
+    argNames <- manyTill varName (symbol "=")
+    body <- delta' $ (map (, TList) argNames) ++ initialEnv
+    return
+      ( funcName
+      , Formula
+          { argNames = argNames
+          , expr = body
+          }
+      )
 
-deltaForall :: Parser (Expr Bool)
-deltaForall = Forall <$> varName <* keyword "in" <*> deltaList <* keyword "." <*> deltaTerm
+peekSignatures :: Parser Signatures
+peekSignatures =
+  Signatures <$> many signature
+  where
+  signature = do
+    funcName <- varName
+    argsCount <- length <$> manyTill varName (symbol "=")
+    skipManyTill L.charLiteral (void (symbol ";") <|> eof)
+    return (funcName, TFormula argsCount)
 
-deltaExists :: Parser (Expr Bool)
-deltaExists = Exists <$> varName <* keyword "in" <*> deltaList <* keyword "." <*> deltaTerm
-
-deltaLet :: Parser (Expr Bool)
-deltaLet = Let <$> varName <* symbol "=" <*> deltaList <* symbol "." <*> deltaTerm
-
-deltaTerm :: Parser (Expr Bool)
-deltaTerm = choice
-  [ keyword "forall" *> deltaForall
-  , keyword "exists" *> deltaExists
-  , keyword "let"    *> deltaLet
-  , BConst <$> boolLit
-  , try (parens deltaBoolExpr)
-  , deltaListBoolExpr
-  ]
-
-deltaBoolExpr :: Parser (Expr Bool)
-deltaBoolExpr = makeExprParser deltaTerm ops where
+delta' :: Env -> Parser (Expr Bool)
+delta' env = makeExprParser (deltaTerm env) ops where
   ops = [ [ Prefix (BNot <$ symbol "!") ]
         , [ InfixL (BOp BAnd <$ symbol "*") ]
         , [ InfixL (BOp BOr  <$ symbol "+") ]
+        , [ InfixL (impl     <$ symbol "->")]
         ]
+  impl e1 e2 = BOp BOr (BNot e1) e2
 
-deltaListBoolExpr :: Parser (Expr Bool)
-deltaListBoolExpr = do
-  l <- deltaList
+deltaTerm :: Env -> Parser (Expr Bool)
+deltaTerm env = choice
+  [ keyword "forall" *> (deltaForall env)
+  , keyword "exists" *> (deltaExists env)
+  , keyword "let"    *> (deltaLet env)
+  , BConst <$> boolLit
+  , parens $ delta' env
+  , funcOrVar env
+  , deltaListFormula env
+  ]
+
+funcOrVar :: Env -> Parser (Expr Bool)
+funcOrVar env = do
+  o <- getOffset
+  var <- try varName
+  case lookup var env of
+    Just TList -> deltaListFormula' env (Var var)
+    Just (TFormula n) -> do
+      args <- many (deltaList1 env)
+      when (length args /= n) $
+        fail $ "expected " ++ show n ++ " arguments, got " ++ show (length args)
+      return (Lang.Formula var args)
+    Nothing -> do
+      setOffset o
+      fail $ var ++ " is undefined"
+
+variable :: Env -> Parser (Expr List)
+variable env = do
+  o <- getOffset
+  var <- try varName
+  case lookup var env of
+    Just TList ->
+      return (Var var)
+    Just ty -> do
+      setOffset o
+      fail $ var ++ " expected to be a list, got " ++ show ty
+    Nothing -> do
+      setOffset o
+      fail $ var ++ " is undefined"
+
+deltaForall :: Env -> Parser (Expr Bool)
+deltaForall env = do
+  var <- varName <* keyword "in"
+  Forall var <$> deltaList env <* keyword "." <*> (deltaTerm $ (var, TList) : env)
+
+deltaExists :: Env -> Parser (Expr Bool)
+deltaExists env = do
+  var <- varName <* keyword "in"
+  Exists var <$> deltaList env <* keyword "." <*> (deltaTerm $ (var, TList) : env)
+
+deltaLet :: Env -> Parser (Expr Bool)
+deltaLet env = do
+  var <- varName <* symbol "="
+  Let var <$> deltaList env <* symbol "." <*> (deltaTerm $ (var, TList) : env)
+
+deltaListFormula :: Env -> Parser (Expr Bool)
+deltaListFormula env =
+  deltaListFormula' env =<< deltaList env
+
+deltaListFormula' :: Env -> Expr List -> Parser (Expr Bool)
+deltaListFormula' env l = do
   choice
-    [ LIn l <$ symbol "in" <*> deltaList
-    , LEq l <$ symbol "="  <*> deltaList
+    [ LIn l <$ symbol "in" <*> deltaList env
+    , LEq l <$ symbol "="  <*> deltaList env
     ]
 
-deltaList :: Parser (Expr List)
-deltaList = choice
-  [ parens deltaList
+deltaList1 :: Env -> Parser (Expr List)
+deltaList1 env = choice
+  [ variable env
   , LConst <$> listLit
-  , LTail <$ keyword "tail" <*> deltaList
-  , LConc <$ keyword "conc" <*> deltaList <*> deltaList
-  , Var <$> varName
+  , parens (deltaList env)
+  ]
+
+deltaList :: Env -> Parser (Expr List)
+deltaList env = choice
+  [ parens (deltaList env)
+  , LConst <$> listLit
+  , LTail <$ keyword "tail" <*> (deltaList1 env)
+  , LConc <$ keyword "conc" <*> (deltaList1 env) <*> (deltaList1 env)
+  , LConst [] <$ keyword "nil"
+  , variable env
   ] <?> "list"

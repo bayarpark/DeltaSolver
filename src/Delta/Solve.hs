@@ -12,7 +12,7 @@ import qualified Delta.Lang as Lang
 type Formulas = Map String Formula
 data Formula = Formula
   { argNames :: [String]
-  , expr     :: Expr Bool
+  , expr     :: ExprL Bool
   } deriving (Show, Eq)
 
 type Vars = [(String, List)]
@@ -32,7 +32,7 @@ solveFormula :: Formulas -> String -> [List] -> Either SolveErr Solution
 solveFormula formulas fName args =
   solve formulas [] (Lang.Formula fName $ LConst <$> args)
 
-solve :: Formulas -> Vars -> Expr Bool -> Either SolveErr Solution
+solve :: Formulas -> Vars -> ExprL Bool -> Either SolveErr Solution
 solve formulas env = \case
   BConst True -> Right (FTrue [])
   BConst False -> Right (FFalse [])
@@ -92,7 +92,7 @@ solve formulas env = \case
       Just _  -> Left FormulaArgumentsMismatch
       Nothing -> Left UndefinedFormula
 
-evaluate :: Vars -> Expr List -> Either SolveErr List
+evaluate :: Vars -> ExprL EList -> Either SolveErr List
 evaluate env = \case
   LConst l -> Right l
   LTail l -> evaluate env l >>= Right . \case

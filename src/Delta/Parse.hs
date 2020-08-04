@@ -92,7 +92,7 @@ peekSignatures =
     skipManyTill L.charLiteral (void (symbol ";") <|> eof)
     return (funcName, TFormula argsCount)
 
-delta' :: Env -> Parser (Expr Bool)
+delta' :: Env -> Parser (ExprL Bool)
 delta' env = makeExprParser (deltaTerm env) ops where
   ops = [ [ Prefix (BNot <$ symbol "!") ]
         , [ InfixL (BOp BAnd <$ symbol "*") ]
@@ -101,7 +101,7 @@ delta' env = makeExprParser (deltaTerm env) ops where
         ]
   impl e1 e2 = BOp BOr (BNot e1) e2
 
-deltaTerm :: Env -> Parser (Expr Bool)
+deltaTerm :: Env -> Parser (ExprL Bool)
 deltaTerm env = choice
   [ keyword "forall" *> (deltaForall env)
   , keyword "exists" *> (deltaExists env)
@@ -112,7 +112,7 @@ deltaTerm env = choice
   , deltaListFormula env
   ]
 
-funcOrVar :: Env -> Parser (Expr Bool)
+funcOrVar :: Env -> Parser (ExprL Bool)
 funcOrVar env = do
   o <- getOffset
   var <- try varName
@@ -127,7 +127,7 @@ funcOrVar env = do
       setOffset o
       fail $ var ++ " is undefined"
 
-variable :: Env -> Parser (Expr List)
+variable :: Env -> Parser (ExprL EList)
 variable env = do
   o <- getOffset
   var <- try varName
@@ -141,40 +141,40 @@ variable env = do
       setOffset o
       fail $ var ++ " is undefined"
 
-deltaForall :: Env -> Parser (Expr Bool)
+deltaForall :: Env -> Parser (ExprL Bool)
 deltaForall env = do
   var <- varName <* keyword "in"
   Forall var <$> deltaList env <* keyword "." <*> (deltaTerm $ (var, TList) : env)
 
-deltaExists :: Env -> Parser (Expr Bool)
+deltaExists :: Env -> Parser (ExprL Bool)
 deltaExists env = do
   var <- varName <* keyword "in"
   Exists var <$> deltaList env <* keyword "." <*> (deltaTerm $ (var, TList) : env)
 
-deltaLet :: Env -> Parser (Expr Bool)
+deltaLet :: Env -> Parser (ExprL Bool)
 deltaLet env = do
   var <- varName <* symbol "="
   Let var <$> deltaList env <* symbol "." <*> (deltaTerm $ (var, TList) : env)
 
-deltaListFormula :: Env -> Parser (Expr Bool)
+deltaListFormula :: Env -> Parser (ExprL Bool)
 deltaListFormula env =
   deltaListFormula' env =<< deltaList env
 
-deltaListFormula' :: Env -> Expr List -> Parser (Expr Bool)
+deltaListFormula' :: Env -> ExprL EList -> Parser (ExprL Bool)
 deltaListFormula' env l = do
   choice
     [ LIn l <$ symbol "in" <*> deltaList env
     , LEq l <$ symbol "="  <*> deltaList env
     ]
 
-deltaList1 :: Env -> Parser (Expr List)
+deltaList1 :: Env -> Parser (ExprL EList)
 deltaList1 env = choice
   [ variable env
   , LConst <$> listLit
   , parens (deltaList env)
   ]
 
-deltaList :: Env -> Parser (Expr List)
+deltaList :: Env -> Parser (ExprL EList)
 deltaList env = choice
   [ parens (deltaList env)
   , LConst <$> listLit

@@ -3,13 +3,15 @@ import Test.Hspec
 
 import Data.Monoid ((<>))
 import Data.Text (Text)
-import qualified Data.Map.Strict as M
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
 import Text.Megaparsec (parse, errorBundlePretty)
 
 import Delta.Lang hiding (Formula)
 import Delta.Parse (delta, peekSignatures)
 import Delta.Solve (Formulas, Solution(..), Formula(..), solveFormula)
+import Trans (Bounds(..), convertListsToMatrices)
 import qualified Delta.Lang as Lang
 
 main :: IO ()
@@ -17,14 +19,14 @@ main = hspec $ do
   describe "Parse simple expressions" $ do
     it "expr1" $ do
       formulas <- validFormula "expr1 = 0 + 1 * 0;"
-      M.toList formulas `shouldBe`
+      Map.toList formulas `shouldBe`
         [ ("expr1",)
         $ Formula []
         $ BOp BOr (BConst False) (BOp BAnd (BConst True) (BConst False))
         ]
     it "expr2" $ do
       formulas <- validFormula "expr2 x = 0 + x in <1 2 3>"
-      M.toList formulas `shouldBe`
+      Map.toList formulas `shouldBe`
         [ ("expr2",)
         $ Formula ["x"]
         $ BOp BOr (BConst False)
@@ -32,7 +34,7 @@ main = hspec $ do
         ]
     it "expr3" $ do
       formulas <- validFormula "expr3 x = forall y in <2 3 4>. exists z in y. conc z x = y"
-      M.toList formulas `shouldBe`
+      Map.toList formulas `shouldBe`
         [ ("expr3",)
         $ Formula ["x"]
         $ Forall "y" (LConst [2,3,4])
@@ -41,7 +43,7 @@ main = hspec $ do
         ]
     it "expr4" $ do
       formulas <- validFormula "expr4 = forall z in <1 2>. (1 + conc z <1> in <1 2 1> * 0)"
-      M.toList formulas `shouldBe`
+      Map.toList formulas `shouldBe`
         [ ("expr4",)
         $ Formula []
         $ Forall "z" (LConst [1,2])
@@ -52,7 +54,7 @@ main = hspec $ do
   describe "Solves simple expression" $ do
     it "suffix" $ do
       formulas <- validFormula "suffix x y = exists z in y. conc z x = y"
-      M.toList formulas `shouldBe`
+      Map.toList formulas `shouldBe`
         [ ("suffix",)
         $ Formula ["x", "y"]
         $ Exists "z" (Var "y")
@@ -62,7 +64,7 @@ main = hspec $ do
       solveFormula formulas "suffix" [[1,2], [1,2,3]] `shouldBe` Right (FFalse [])
     it "oneElem" $ do
       formulas <- validFormula "oneElem x = !(x = <>) * tail x = <>"
-      M.toList formulas `shouldBe`
+      Map.toList formulas `shouldBe`
         [ ("oneElem",)
         $ Formula ["x"]
         $ BOp BAnd (BNot (LEq (Var "x") (LConst [])))
@@ -87,6 +89,22 @@ main = hspec $ do
       solveFormula formulas "rev" [[1,2,3], [3,2,3]] `shouldBe` Right (FFalse [])
       solveFormula formulas "rev" [[1,2,3], [1,2,3]] `shouldBe` Right (FFalse [])
       solveFormula formulas "rev" [[1,2,3], []] `shouldBe` Right (FFalse [])
+  describe "Converts list-based expressions to matrix-based" $ do
+    it "expr1" $ do
+      let l1 = [1,2]
+          l2 = [1,2,3]
+          m1 = Map.fromList [ (1, [True,  False, False])
+                            , (2, [False, True,  False])
+                            , (3, [False, False, False])
+                            ]
+          m2 = Map.fromList [ (1, [True,  False, False])
+                            , (2, [False, True,  False])
+                            , (3, [False, False, True ])
+                            ]
+      let listExpr = LConst l1 `LIn` LConst l2 -- [1,2] in [1,2,3]
+          matrixExpr = LConst m1 `LIn` LConst m2
+          bounds = Bounds { maxListLength = 3, praElements = Set.fromList [1,2,3] }
+      convertListsToMatrices bounds listExpr `shouldBe` Right matrixExpr
 
 
 validFormula :: Text -> IO Formulas

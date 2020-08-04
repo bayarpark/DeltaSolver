@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 542c55c7045876d0fc1698c636773321426e3c345395da6a691d571bc10ba319
+-- hash: 3a4b4672e79a153e1e84b1d66d4f112d73964b77e318cd071d32938abc63b3a1
 
 name:           DeltaSolver
 version:        0.1.0.0
@@ -30,6 +30,8 @@ library
       Delta.Lang
       Delta.Parse
       Delta.Solve
+      QBF.Lang
+      Trans
   other-modules:
       Paths_DeltaSolver
   hs-source-dirs:

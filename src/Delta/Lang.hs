@@ -19,6 +19,7 @@ data Expr list a where
 
   LIn :: Expr list EList -> Expr list EList -> Expr list Bool
   LEq :: Expr list EList -> Expr list EList -> Expr list Bool
+  LLess :: Expr list EList -> Expr list EList -> Expr list Bool
 
   Let :: String -> Expr list EList -> Expr list Bool -> Expr list Bool
   Var :: String -> Expr list EList
@@ -35,4 +36,3 @@ data BOp
   = BAnd
   | BOr
   deriving (Show, Eq)
-

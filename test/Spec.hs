@@ -13,6 +13,7 @@ import Delta.Parse (delta, peekSignatures)
 import Delta.Solve (Formulas, Solution(..), Formula(..), solveFormula)
 import Trans (Bounds(..), convertListsToMatrices)
 import qualified Delta.Lang as Lang
+import qualified QBF.Lang as QBF
 
 main :: IO ()
 main = hspec $ do
@@ -93,13 +94,13 @@ main = hspec $ do
     it "expr1" $ do
       let l1 = [1,2]
           l2 = [1,2,3]
-          m1 = Map.fromList [ (1, [True,  False, False])
-                            , (2, [False, True,  False])
-                            , (3, [False, False, False])
+          m1 = Map.fromList [ (1, [QBF.Const True, QBF.Const False, QBF.Const False])
+                            , (2, [QBF.Const False, QBF.Const True, QBF.Const False])
+                            , (3, [QBF.Const False, QBF.Const False, QBF.Const False])
                             ]
-          m2 = Map.fromList [ (1, [True,  False, False])
-                            , (2, [False, True,  False])
-                            , (3, [False, False, True ])
+          m2 = Map.fromList [ (1, [QBF.Const True,  QBF.Const False, QBF.Const False])
+                            , (2, [QBF.Const False, QBF.Const True,  QBF.Const False])
+                            , (3, [QBF.Const False, QBF.Const False, QBF.Const True])
                             ]
       let listExpr = LConst l1 `LIn` LConst l2 -- [1,2] in [1,2,3]
           matrixExpr = LConst m1 `LIn` LConst m2

@@ -10,3 +10,4 @@ data Expr
   | Var VarName
   | Exist VarName Expr
   | Forall VarName Expr
+  deriving (Eq, Show)

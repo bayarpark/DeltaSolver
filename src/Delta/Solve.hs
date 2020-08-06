@@ -62,6 +62,14 @@ solve formulas env = \case
     if p1 == p2
       then Right $ FTrue []
       else Right $ FFalse []
+
+  LLess l1 l2 -> do
+    p1 <- evaluate env l1
+    p2 <- evaluate env l2
+    if p1 < p2
+      then Right $ FTrue []
+      else Right $ FFalse []
+
   Let var list expr -> do
     l <- evaluate env list
     solve formulas ((var, l) : env) expr
